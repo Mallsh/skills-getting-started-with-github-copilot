@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import os
+import threading
 from pathlib import Path
 
 app = FastAPI(title="Mergington High School API",
@@ -21,6 +22,42 @@ app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
 
 # In-memory activity database
 activities = {
+    "Baseball Team": {
+        "description": "Competitive baseball training and league matches",
+        "schedule": "Tuesdays and Fridays, 3:30 PM - 5:00 PM",
+        "max_participants": 16,
+        "participants": ["jacob@mergington.edu"]
+        },
+        "Swimming Team": {
+        "description": "Competitive swimming and water sports training",
+        "schedule": "Mondays and Wednesdays, 4:00 PM - 5:30 PM",
+        "max_participants": 20,
+        "participants": ["zoe@mergington.edu"]
+        },
+        "Creative Writing Club": {
+        "description": "Explore storytelling, poetry, and creative expression",
+        "schedule": "Thursdays, 3:30 PM - 5:00 PM",
+        "max_participants": 15,
+        "participants": ["victoria@mergington.edu", "william@mergington.edu"]
+        },
+        "Dance Club": {
+        "description": "Learn various dance styles and perform in shows",
+        "schedule": "Mondays and Fridays, 4:00 PM - 5:00 PM",
+        "max_participants": 18,
+        "participants": ["chloe@mergington.edu"]
+        },
+        "Coding Club": {
+        "description": "Advanced programming challenges and hackathons",
+        "schedule": "Wednesdays and Fridays, 3:30 PM - 5:00 PM",
+        "max_participants": 16,
+        "participants": ["samuel@mergington.edu", "natalie@mergington.edu"]
+        },
+        "Math Olympiad": {
+        "description": "Prepare for mathematics competitions and problem solving",
+        "schedule": "Tuesdays, 3:30 PM - 5:00 PM",
+        "max_participants": 12,
+        "participants": ["jackson@mergington.edu"]
+        },
     "Chess Club": {
         "description": "Learn strategies and compete in chess tournaments",
         "schedule": "Fridays, 3:30 PM - 5:00 PM",
@@ -111,81 +148,10 @@ activities = {
         "max_participants": 20,
         "participants": ["amelia@mergington.edu"]
     }
-    {
-        "Chess Club": {
-            "description": "Learn strategies and compete in chess tournaments",
-            "schedule": "Fridays, 3:30 PM - 5:00 PM",
-            "max_participants": 12,
-            "participants": ["michael@mergington.edu", "daniel@mergington.edu"]
-        },
-        "Programming Class": {
-            "description": "Learn programming fundamentals and build software projects",
-            "schedule": "Tuesdays and Thursdays, 3:30 PM - 4:30 PM",
-            "max_participants": 20,
-            "participants": ["emma@mergington.edu", "sophia@mergington.edu"]
-        },
-        "Gym Class": {
-            "description": "Physical education and sports activities",
-            "schedule": "Mondays, Wednesdays, Fridays, 2:00 PM - 3:00 PM",
-            "max_participants": 30,
-            "participants": ["john@mergington.edu", "olivia@mergington.edu"]
-        },
-        "Basketball Team": {
-            "description": "Competitive basketball training and games",
-            "schedule": "Mondays and Wednesdays, 4:00 PM - 5:30 PM",
-            "max_participants": 15,
-            "participants": ["alex@mergington.edu"]
-        },
-        "Tennis Club": {
-            "description": "Tennis skills development and friendly matches",
-            "schedule": "Tuesdays and Thursdays, 4:00 PM - 5:00 PM",
-            "max_participants": 10,
-            "participants": ["grace@mergington.edu"]
-        },
-        "Debate Club": {
-            "description": "Develop critical thinking and public speaking skills",
-            "schedule": "Wednesdays, 3:30 PM - 5:00 PM",
-            "max_participants": 18,
-            "participants": ["lucas@mergington.edu", "maya@mergington.edu"]
-        },
-        "Robotics Team": {
-            "description": "Design and build robots for competitions",
-            "schedule": "Thursdays, 4:00 PM - 5:30 PM",
-            "max_participants": 16,
-            "participants": ["ryan@mergington.edu"]
-        },
-        "Art Club": {
-            "description": "Explore painting, drawing, and sculpture techniques",
-            "schedule": "Mondays, 3:30 PM - 5:00 PM",
-            "max_participants": 20,
-            "participants": ["isabella@mergington.edu", "noah@mergington.edu"]
-        },
-        "Theater Production": {
-            "description": "Perform in school plays and musical productions",
-            "schedule": "Tuesdays and Fridays, 4:00 PM - 5:30 PM",
-            "max_participants": 25,
-            "participants": ["ava@mergington.edu"]
-        }
-    }
-    "Chess Club": {
-        "description": "Learn strategies and compete in chess tournaments",
-        "schedule": "Fridays, 3:30 PM - 5:00 PM",
-        "max_participants": 12,
-        "participants": ["michael@mergington.edu", "daniel@mergington.edu"]
-    },
-    "Programming Class": {
-        "description": "Learn programming fundamentals and build software projects",
-        "schedule": "Tuesdays and Thursdays, 3:30 PM - 4:30 PM",
-        "max_participants": 20,
-        "participants": ["emma@mergington.edu", "sophia@mergington.edu"]
-    },
-    "Gym Class": {
-        "description": "Physical education and sports activities",
-        "schedule": "Mondays, Wednesdays, Fridays, 2:00 PM - 3:00 PM",
-        "max_participants": 30,
-        "participants": ["john@mergington.edu", "olivia@mergington.edu"]
-    }
 }
+
+# Lock to avoid race conditions when modifying participants
+_lock = threading.Lock()
 
 
 @app.get("/")
@@ -205,13 +171,25 @@ def signup_for_activity(activity_name: str, email: str):
     if activity_name not in activities:
         raise HTTPException(status_code=404, detail="Activity not found")
 
-    # Get the specific activity
+    if not email:
+        raise HTTPException(status_code=400, detail="Email required")
+
     activity = activities[activity_name]
+    normalized = email.strip().lower()
 
-    # Validate student is not already signed up
-    if email in activity["participants"]:
-        raise HTTPException(status_code=400, detail="Student is already signed up")
+    with _lock:
+        # Normalize existing participants on-the-fly for comparison
+        normalized_participants = {p.strip().lower() for p in activity["participants"]}
 
-    # Add student
-    activity["participants"].append(email)
-    return {"message": f"Signed up {email} for {activity_name}"}
+        # Validate student is not already signed up
+        if normalized in normalized_participants:
+            raise HTTPException(status_code=400, detail="Student is already signed up")
+
+        # Validate capacity
+        if len(activity["participants"]) >= activity["max_participants"]:
+            raise HTTPException(status_code=400, detail="Activity is full")
+
+        # Add normalized email
+        activity["participants"].append(normalized)
+
+    return {"message": f"Signed up {normalized} for {activity_name}"}
